@@ -1,5 +1,14 @@
 # Aptiv Connected Services Hack Yeah 2023 Backend
 
+## How to run:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
 ## Endpoints:
 
 ### POST /api/group/add
