@@ -17,9 +17,9 @@ RESP 400: Bad JSON
 
 RESP JSON:
  - groups: list of:
-  - name (string)
-  - description (string)
-  - category (string)
+   - name (string)
+   - description (string)
+   - category (string)
 
 ### GET /api/group/get
 
@@ -30,13 +30,13 @@ REQ JSON:
 RESP JSON:
  - description (string)
  - posts: list of:
-  - id (int)
-  - title (string)
-  - text (string)
-  - date (string)
-  - comments: list of:
+   - id (int)
+   - title (string)
    - text (string)
    - date (string)
+   - comments: list of:
+     - text (string)
+     - date (string)
 
 RESP 400: Bad JSON
 RESP 404: Group or category not found
