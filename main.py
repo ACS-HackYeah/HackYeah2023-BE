@@ -1,5 +1,6 @@
 from aiohttp import web
 import sqlite3 as sq3
+from datetime import datetime
 
 db_conn = sq3.connect("thought_overflow.db")
 db = db_conn.cursor()
@@ -7,12 +8,9 @@ db = db_conn.cursor()
 async def group_add(request):
     data = await request.json()
     if 'name' not in data:
-        return web.HTTPBadRequest("Missing name")
+        return web.HTTPBadRequest()
     lastid = db.execute("SELECT id FROM groups ORDER BY id DESC").fetchone()
-    if lastid is None:
-        lastid = 0 
-    else:
-        lastid = lastid[0]
+    lastid = 0 if lastid is None else lastid[0]
 
     cat_id = 0
     if 'category' in data:
@@ -31,7 +29,6 @@ async def group_list(request):
     return web.json_response({
         "groups": [
             {
-                "id": id,
                 "name": name,
                 "description": description,
                 "category": db.execute("SELECT name FROM categories WHERE id == ?", (cat_id,)).fetchone()[0]
@@ -42,17 +39,14 @@ async def group_list(request):
     
 async def group_get(request):
     data = await request.json()
-    if 'name' not in data:
-        return web.HTTPBadRequest("Missing name")
-    gid = 0
-    if 'category' in data:
-        cid = db.execute("SELECT id FROM categories WHERE name == ?", (data["category"],)).fetchone()
-        if cid is None:
-            return web.HTTPNotFound()
-        gid = db.execute("SELECT id, description, category_id FROM groups WHERE name == ? AND category_id == ?", (data["name"], cid[0])).fetchone()
-    else:
-        gid = db.execute("SELECT id, description, category_id FROM groups WHERE name == ?", (data["name"],)).fetchone()
+    if not all(k in data for k in ("category", "name")):
+        return web.HTTPBadRequest()
 
+    cid = db.execute("SELECT id FROM categories WHERE name == ?", (data["category"],)).fetchone()
+    if cid is None:
+        return web.HTTPNotFound()
+
+    gid = db.execute("SELECT id, description FROM groups WHERE name == ? AND category_id == ?", (data["name"], cid[0])).fetchone()
     if gid is None:
         return web.HTTPNotFound()
 
@@ -60,6 +54,7 @@ async def group_get(request):
         "description": gid[1],
         "posts": [
             {
+                "id": id,
                 "title": title,
                 "text": text,
                 "date": date,
@@ -68,18 +63,66 @@ async def group_get(request):
                         "text": comment_text,
                         "date": comment_date,
                     } for (comment_text, comment_date)
-                    in db.execute("SELECT text, date FROM comments WHERE group_id == ? AND category_id == ? AND post_id == ?", (gid[0], gid[2], id)).fetchall()
+                    in db.execute("SELECT text, date FROM comments WHERE group_id == ? AND category_id == ? AND post_id == ?", (gid[0], cid[0], id)).fetchall()
                 ]
             } for (id, title, text, date)
-            in db.execute("SELECT id, title, text, date FROM posts WHERE group_id == ? AND category_id == ?", (gid[0], gid[2])).fetchall()
+            in db.execute("SELECT id, title, text, date FROM posts WHERE group_id == ? AND category_id == ?", (gid[0], cid[0])).fetchall()
         ]})
     
+async def post_add(request):
+    time = datetime.now()
+    data = await request.json()
+    if not all(k in data for k in ("category", "group", "title", "text")):
+        return web.HTTPBadRequest()
+
+    cid = db.execute("SELECT id FROM categories WHERE name == ?", (data["category"],)).fetchone()
+    if cid is None:
+        return web.HTTPNotFound()
+
+    gid = db.execute("SELECT id FROM groups WHERE name == ? AND category_id == ?", (data["group"], cid[0])).fetchone()
+    if gid is None:
+        return web.HTTPNotFound()
+
+    id = db.execute("SELECT id FROM posts ORDER BY id DESC").fetchone()
+    id = 0 if id is None else id[0] + 1
+
+    db.execute("INSERT INTO posts VALUES (?, ?, ?, ?, ?, ?)", (id, gid[0], cid[0], data["title"], data["text"], time))
+    db_conn.commit()
+    return web.json_response({"id": id})
+    
+
+async def comment_add(request):
+    time = datetime.now()
+    data = await request.json()
+    if not all(k in data for k in ("category", "group", "post_id", "text")):
+        return web.HTTPBadRequest()
+
+    cid = db.execute("SELECT id FROM categories WHERE name == ?", (data["category"],)).fetchone()
+    if cid is None:
+        return web.HTTPNotFound()
+
+    gid = db.execute("SELECT id FROM groups WHERE name == ? AND category_id == ?", (data["group"], cid[0])).fetchone()
+    if gid is None:
+        return web.HTTPNotFound()
+
+    pid = db.execute("SELECT id FROM posts WHERE group_id == ? AND category_id == ? AND id == ?", (gid[0], cid[0], data["post_id"])).fetchone()
+    if pid is None:
+        return web.HTTPNotFound()
+
+    id = db.execute("SELECT id FROM comments ORDER BY id DESC").fetchone()
+    id = 0 if id is None else id[0] + 1
+
+    db.execute("INSERT INTO comments VALUES (?, ?, ?, ?, ?, ?)", (id, gid[0], cid[0], pid[0], data["text"], time))
+    db_conn.commit()
+    return web.HTTPOk()
 
 app = web.Application()
 app.add_routes([
     web.post('/api/group/add', group_add),
     web.get('/api/group/list', group_list),
     web.get('/api/group/get', group_get),
+    web.post('/api/post/add', post_add),
+    web.post('/api/comment/add', comment_add),
     ])
 
 if __name__ == '__main__':
